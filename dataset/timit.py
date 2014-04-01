@@ -7,6 +7,7 @@ from segmentaxis import segment_axis
 import scipy.stats
 import pdb
 import collections
+import sys
 
 
 class TIMIT(object):
@@ -145,23 +146,29 @@ class TIMIT(object):
         phonemes = np.load(phonemes_path, "r") 
         print "Done !"
         
-        print "Determining preceding and following phonemes...", 
-        # Determine preceding phonemes
+        # Determine preceding phones and phonemes
+        print "Determining preceding phones and phonemes...",
+        sys.stdout.flush()
+        preceding_phones = np.empty(phones.shape)
         preceding_phonemes = np.empty(phonemes.shape)
-        preceding = 0
-        preceding_phonemes[0] = preceding
-        for i in range(1, phonemes.shape[0]):
-        	if phonemes[i] != phonemes[i-1]:
-        		preceding = phonemes[i-1]
-        	preceding_phonemes[i] = preceding
-        # Determine next phonemes
+        preceding = (0,0)
+        preceding_phones[0], preceding_phonemes[0] = preceding
+        for i in xrange(1, phones.shape[0]):
+        	if phones[i] != phones[i-1]:
+        		preceding = phones[i-1], phonemes[i-1]
+        	preceding_phones[i], preceding_phonemes[i] = preceding
+        print "Done !"
+        # Determine next phones and phonemes
+        print "Determining following phones and phonemes...",
+        sys.stdout.flush()
+        next_phones = np.empty(phones.shape)
         next_phonemes = np.empty(phonemes.shape)
-        next = 0
-        next_phonemes[-1] = next
-        for i in range(phonemes.shape[0]-2, 0, -1):
-        	if phonemes[i] != phonemes[i+1]:
-        		next = phonemes[i+1]
-        	next_phonemes[i] = next
+        next = (0,0)
+        next_phones[-1], next_phonemes[-1] = next
+        for i in xrange(phones.shape[0]-2, 0, -1):
+        	if phones[i] != phones[i+1]:
+        		next = phones[i+1], phonemes[i+1]
+        	next_phones[i], next_phonemes[i] = next
         print "Done !"
         
         ## Words
@@ -182,6 +189,8 @@ class TIMIT(object):
         data["intervals"] = intervals
         data["n_seq"] = intervals.shape[0] - 1
         data["phones"] = phones
+        data["preceding_phones"] = preceding_phones
+        data["next_phones"] = next_phones
         data["phonemes"] = phonemes
         data["preceding_phonemes"] = preceding_phonemes
         data["next_phonemes"] = next_phonemes
@@ -213,7 +222,11 @@ class TIMIT(object):
         del self.__dict__[subset]["intervals"]
         del self.__dict__[subset]["n_seq"]
         del self.__dict__[subset]["phones"]
+        del self.__dict__[subset]["preceding_phones"]
+        del self.__dict__[subset]["next_phones"]
         del self.__dict__[subset]["phonemes"]
+        del self.__dict__[subset]["preceding_phonemes"]
+        del self.__dict__[subset]["next_phonemes"]
         del self.__dict__[subset]["words"]
         del self.__dict__[subset]["words_intervals"]
         del self.__dict__[subset]["seq_to_words"]
@@ -298,7 +311,11 @@ class TIMIT(object):
         
         # Get the phones, phonemes and words
         phones = self.__dict__[subset]["phones"][wav_start:wav_end]
+        preceding_phones = self.__dict__[subset]["preceding_phones"][wav_start:wav_end]
+        next_phones = self.__dict__[subset]["next_phones"][wav_start:wav_end]
         phonemes = self.__dict__[subset]["phonemes"][wav_start:wav_end]
+        preceding_phonemes = self.__dict__[subset]["preceding_phonemes"][wav_start:wav_end]
+        next_phonemes = self.__dict__[subset]["next_phonemes"][wav_start:wav_end]
         words = self.__dict__[subset]["words"][wav_start:wav_end]
         
         # Find the speaker id
@@ -313,11 +330,27 @@ class TIMIT(object):
         phones = segment_axis(phones, frame_length, overlap)
         phones = scipy.stats.mode(phones, axis=1)[0].flatten()
         phones = np.asarray(phones, dtype='int')
+        # Take the most occurring preceding phone in a sequence
+        preceding_phones = segment_axis(preceding_phones, frame_length, overlap)
+        preceding_phones = scipy.stats.mode(preceding_phones, axis=1)[0].flatten()
+        preceding_phones = np.asarray(preceding_phones, dtype='int')
+        # Take the most occurring next phone in a sequence
+        next_phones = segment_axis(next_phones, frame_length, overlap)
+        next_phones = scipy.stats.mode(next_phones, axis=1)[0].flatten()
+        next_phones = np.asarray(next_phones, dtype='int')
         
-        # Take the most occurring phone in a sequence
+        # Take the most occurring phoneme in a sequence
         phonemes = segment_axis(phonemes, frame_length, overlap)
         phonemes = scipy.stats.mode(phonemes, axis=1)[0].flatten()
         phonemes = np.asarray(phonemes, dtype='int')
+        # Take the most occurring preceding phoneme in a sequence
+        preceding_phonemes = segment_axis(preceding_phonemes, frame_length, overlap)
+        preceding_phonemes = scipy.stats.mode(preceding_phonemes, axis=1)[0].flatten()
+        preceding_phonemes = np.asarray(preceding_phonemes, dtype='int')
+        # Take the most occurring next phoneme in a sequence
+        next_phonemes = segment_axis(next_phonemes, frame_length, overlap)
+        next_phonemes = scipy.stats.mode(next_phonemes, axis=1)[0].flatten()
+        next_phonemes = np.asarray(next_phonemes, dtype='int')
         
         # Take the most occurring word in a sequence
         words = segment_axis(words, frame_length, overlap)
@@ -337,7 +370,7 @@ class TIMIT(object):
         end_phn[-1] = 1
         end_wrd[-1] = 1
         
-        return [wav, phones, phonemes, end_phn, words, end_wrd, spkr_info]
+        return [wav, preceding_phones, phones, next_phones, preceding_phonemes, phonemes, next_phonemes, end_phn, words, end_wrd, spkr_info]
     
     def get_n_seq(self, subset):
         """
@@ -448,12 +481,16 @@ class TIMIT(object):
             # words = self.__dict__[subset]["words"][indices]
             
             phones = np.zeros((ids.shape[0], self.wav_length_required))
+            preceding_phones = np.zeros((ids.shape[0], self.wav_length_required))
+            next_phones = np.zeros((ids.shape[0], self.wav_length_required))
             phonemes = np.zeros((ids.shape[0], self.wav_length_required))
             preceding_phonemes = np.zeros((ids.shape[0], self.wav_length_required))
             next_phonemes = np.zeros((ids.shape[0], self.wav_length_required))
             words = np.zeros((ids.shape[0], self.wav_length_required))
             for i, idx in enumerate(wav_start):
                 phones[i] = self.__dict__[subset]["phones"][idx:(idx + self.wav_length_required)]
+                preceding_phones[i] = self.__dict__[subset]["preceding_phones"][idx:(idx + self.wav_length_required)]
+                next_phones[i] = self.__dict__[subset]["next_phones"][idx:(idx + self.wav_length_required)]
                 phonemes[i] = self.__dict__[subset]["phonemes"][idx:(idx + self.wav_length_required)]
                 preceding_phonemes[i] = self.__dict__[subset]["preceding_phonemes"][idx:(idx + self.wav_length_required)]
                 next_phonemes[i] = self.__dict__[subset]["next_phonemes"][idx:(idx + self.wav_length_required)]
@@ -472,20 +509,28 @@ class TIMIT(object):
             phones = segment_axis(phones, frame_length, overlap, axis=1)
             phones = scipy.stats.mode(phones, axis=2)[0].reshape(ids.shape[0], \
                         n_frames)
-            phones = np.asarray(phones, dtype='int')
+            phones = np.asarray(phones, dtype='int')        
+            # Take the most occurring preceding phone in a sequence
+            preceding_phones = segment_axis(preceding_phones, frame_length, overlap, axis=1)
+            preceding_phones = scipy.stats.mode(preceding_phones, axis=2)[0].reshape(ids.shape[0], \
+                        n_frames)
+            preceding_phones = np.asarray(preceding_phones, dtype='int')        
+            # Take the most occurring next phone in a sequence
+            next_phones = segment_axis(next_phones, frame_length, overlap, axis=1)
+            next_phones = scipy.stats.mode(next_phones, axis=2)[0].reshape(ids.shape[0], \
+                        n_frames)
+            next_phones = np.asarray(next_phones, dtype='int')
         
             # Take the most occurring phoneme in a sequence
             phonemes = segment_axis(phonemes, frame_length, overlap, axis=1)
             phonemes = scipy.stats.mode(phonemes, axis=2)[0].reshape(ids.shape[0], \
                         n_frames)
-            phonemes = np.asarray(phonemes, dtype='int')
-        
+            phonemes = np.asarray(phonemes, dtype='int')        
             # Take the most occurring preceding phoneme in a sequence
             preceding_phonemes = segment_axis(preceding_phonemes, frame_length, overlap, axis=1)
             preceding_phonemes = scipy.stats.mode(preceding_phonemes, axis=2)[0].reshape(ids.shape[0], \
                         n_frames)
-            preceding_phonemes = np.asarray(preceding_phonemes, dtype='int')
-        
+            preceding_phonemes = np.asarray(preceding_phonemes, dtype='int')        
             # Take the most occurring next phoneme in a sequence
             next_phonemes = segment_axis(next_phonemes, frame_length, overlap, axis=1)
             next_phonemes = scipy.stats.mode(next_phonemes, axis=2)[0].reshape(ids.shape[0], \
@@ -505,7 +550,7 @@ class TIMIT(object):
             end_phn[:,:-1] = np.where(phones[:,:-1] != phones[:,1:], 1, 0)
             end_wrd[:,:-1] = np.where(words[:,:-1] != words[:,1:], 1, 0)
         
-            return [wav, phones, preceding_phonemes, phonemes, next_phonemes, end_phn, words, end_wrd, spkr_info]
+            return [wav, preceding_phones, phones, next_phones, preceding_phonemes, phonemes, next_phonemes, end_phn, words, end_wrd, spkr_info]
         
         else:
             return [wav]
@@ -584,7 +629,11 @@ class TIMIT(object):
         
         # Get the phones, phonemes and words
         phones = self.__dict__[subset]["phones"][wav_start:wav_end]
+        preceding_phones = self.__dict__[subset]["preceding_phones"][wav_start:wav_end]
+        next_phones = self.__dict__[subset]["next_phones"][wav_start:wav_end]
         phonemes = self.__dict__[subset]["phonemes"][wav_start:wav_end]
+        preceding_phonemes = self.__dict__[subset]["preceding_phonemes"][wav_start:wav_end]
+        next_phonemes = self.__dict__[subset]["next_phonemes"][wav_start:wav_end]
         word = self.__dict__[subset]["words_intervals"][id,2]
         
         # Find the speaker id
@@ -599,11 +648,27 @@ class TIMIT(object):
         phones = segment_axis(phones, frame_length, overlap)
         phones = scipy.stats.mode(phones, axis=1)[0].flatten()
         phones = np.asarray(phones, dtype='int')
+        # Take the most occurring preceding phone in a sequence
+        preceding_phones = segment_axis(preceding_phones, frame_length, overlap)
+        preceding_phones = scipy.stats.mode(preceding_phones, axis=1)[0].flatten()
+        preceding_phones = np.asarray(preceding_phones, dtype='int')
+        # Take the most occurring next phone in a sequence
+        next_phones = segment_axis(next_phones, frame_length, overlap)
+        next_phones = scipy.stats.mode(next_phones, axis=1)[0].flatten()
+        next_phones = np.asarray(next_phones, dtype='int')
         
-        # Take the most occurring phone in a sequence
+        # Take the most occurring phoneme in a sequence
         phonemes = segment_axis(phonemes, frame_length, overlap)
         phonemes = scipy.stats.mode(phonemes, axis=1)[0].flatten()
         phonemes = np.asarray(phonemes, dtype='int')
+        # Take the most occurring preceding phoneme in a sequence
+        preceding_phonemes = segment_axis(preceding_phonemes, frame_length, overlap)
+        preceding_phonemes = scipy.stats.mode(preceding_phonemes, axis=1)[0].flatten()
+        preceding_phonemes = np.asarray(preceding_phonemes, dtype='int')
+        # Take the most occurring next phoneme in a sequence
+        next_phonemes = segment_axis(next_phonemes, frame_length, overlap)
+        next_phonemes = scipy.stats.mode(next_phonemes, axis=1)[0].flatten()
+        next_phonemes = np.asarray(next_phonemes, dtype='int')
         
         
         # Binary variable announcing the end of the word or phoneme
@@ -615,7 +680,7 @@ class TIMIT(object):
         
         end_phn[-1] = 1
         
-        return [wav, phones, phonemes, end_phn, word, spkr_info]
+        return [wav, preceding_phones, phones, next_phones, preceding_phonemes, phonemes, next_phonemes, end_phn, word, spkr_info]
         
     
     def get_n_words(self, subset, shuffling = True, end_seq = None):
