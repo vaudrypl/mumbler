@@ -145,6 +145,25 @@ class TIMIT(object):
         phonemes = np.load(phonemes_path, "r") 
         print "Done !"
         
+        print "Determining preceding and following phonemes...", 
+        # Determine preceding phonemes
+        preceding_phonemes = np.empty(phonemes.shape)
+        preceding = 0
+        preceding_phonemes[0] = preceding
+        for i in range(1, phonemes.shape[0]):
+        	if phonemes[i] != phonemes[i-1]:
+        		preceding = phonemes[i-1]
+        	preceding_phonemes[i] = preceding
+        # Determine next phonemes
+        next_phonemes = np.empty(phonemes.shape)
+        next = 0
+        next_phonemes[-1] = next
+        for i in range(phonemes.shape[0]-2, 0, -1):
+        	if phonemes[i] != phonemes[i+1]:
+        		next = phonemes[i+1]
+        	next_phonemes[i] = next
+        print "Done !"
+        
         ## Words
         print "Loading words...", 
         words = np.load(words_path, "r") 
@@ -164,6 +183,8 @@ class TIMIT(object):
         data["n_seq"] = intervals.shape[0] - 1
         data["phones"] = phones
         data["phonemes"] = phonemes
+        data["preceding_phonemes"] = preceding_phonemes
+        data["next_phonemes"] = next_phonemes
         data["words"] = words
         data["words_intervals"] = words_intervals
         data["seq_to_words"] = seq_to_words
@@ -428,7 +449,15 @@ class TIMIT(object):
             
             phones = np.zeros((ids.shape[0], self.wav_length_required))
             phonemes = np.zeros((ids.shape[0], self.wav_length_required))
+            preceding_phonemes = np.zeros((ids.shape[0], self.wav_length_required))
+            next_phonemes = np.zeros((ids.shape[0], self.wav_length_required))
             words = np.zeros((ids.shape[0], self.wav_length_required))
+            for i, idx in enumerate(wav_start):
+                phones[i] = self.__dict__[subset]["phones"][idx:(idx + self.wav_length_required)]
+                phonemes[i] = self.__dict__[subset]["phonemes"][idx:(idx + self.wav_length_required)]
+                preceding_phonemes[i] = self.__dict__[subset]["preceding_phonemes"][idx:(idx + self.wav_length_required)]
+                next_phonemes[i] = self.__dict__[subset]["next_phonemes"][idx:(idx + self.wav_length_required)]
+                words[i] = self.__dict__[subset]["words"][idx:(idx + self.wav_length_required)]
             
             # Find the speaker id
             spkr_id = self.__dict__[subset]["speaker_id"][seq_ids]
@@ -445,11 +474,23 @@ class TIMIT(object):
                         n_frames)
             phones = np.asarray(phones, dtype='int')
         
-            # Take the most occurring phone in a sequence
+            # Take the most occurring phoneme in a sequence
             phonemes = segment_axis(phonemes, frame_length, overlap, axis=1)
             phonemes = scipy.stats.mode(phonemes, axis=2)[0].reshape(ids.shape[0], \
                         n_frames)
             phonemes = np.asarray(phonemes, dtype='int')
+        
+            # Take the most occurring preceding phoneme in a sequence
+            preceding_phonemes = segment_axis(preceding_phonemes, frame_length, overlap, axis=1)
+            preceding_phonemes = scipy.stats.mode(preceding_phonemes, axis=2)[0].reshape(ids.shape[0], \
+                        n_frames)
+            preceding_phonemes = np.asarray(preceding_phonemes, dtype='int')
+        
+            # Take the most occurring next phoneme in a sequence
+            next_phonemes = segment_axis(next_phonemes, frame_length, overlap, axis=1)
+            next_phonemes = scipy.stats.mode(next_phonemes, axis=2)[0].reshape(ids.shape[0], \
+                        n_frames)
+            next_phonemes = np.asarray(next_phonemes, dtype='int')
         
             # Take the most occurring word in a sequence
             words = segment_axis(words, frame_length, overlap, axis=1)
@@ -464,7 +505,7 @@ class TIMIT(object):
             end_phn[:,:-1] = np.where(phones[:,:-1] != phones[:,1:], 1, 0)
             end_wrd[:,:-1] = np.where(words[:,:-1] != words[:,1:], 1, 0)
         
-            return [wav, phones, phonemes, end_phn, words, end_wrd, spkr_info]
+            return [wav, phones, preceding_phonemes, phonemes, next_phonemes, end_phn, words, end_wrd, spkr_info]
         
         else:
             return [wav]
